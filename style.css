@@ -312,6 +312,9 @@ body.my-turn .tile:hover:not(.sel) { transform: translateY(-2px); filter: bright
 }
 .power:hover:not(:disabled) { border-color: rgba(180, 140, 255, .6); background: rgba(60, 40, 140, .55); transform: translateY(-2px); }
 .power:disabled { opacity: .38; }
+button { user-select: none; -webkit-user-select: none; }
+button:focus:not(:focus-visible) { outline: none; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .power.armed { border-color: var(--violet); box-shadow: 0 0 0 2px var(--violet), 0 0 24px rgba(180,140,255,.5); background: rgba(80, 50, 170, .6); }
 .p-icon { font-size: 20px; color: var(--gold-2); }
 .p-name { font-size: 13px; font-weight: 700; }

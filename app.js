@@ -25,6 +25,22 @@ function hasPrefix(p) {
 // =====================================================================
 const SIZE = 5, N = SIZE * SIZE;
 const PREFIX = 'coolquest-v1-';
+// WebRTC connection helpers. STUN lets browsers find each other; TURN relays the
+// traffic when a direct connection is blocked (mobile data, school/work Wi-Fi,
+// strict routers). Without TURN, joining across networks can hang on "Searching…".
+// Paste your TURN credentials into TURN_SERVERS (free tier at metered.ca:
+// Dashboard -> TURN Server -> copy the iceServers entries with username/credential).
+const TURN_SERVERS = [
+  // { urls: 'turn:global.relay.metered.ca:80',                username: 'PASTE', credential: 'PASTE' },
+  // { urls: 'turn:global.relay.metered.ca:443',               username: 'PASTE', credential: 'PASTE' },
+  // { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: 'PASTE', credential: 'PASTE' },
+];
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  ...TURN_SERVERS
+];
+const PEER_OPTS = { debug: 0, config: { iceServers: ICE_SERVERS } };
 const GEM_CAP = 10;
 const LONG_BONUS = 10, LONG_LEN = 6;
 const COST = { shuffle: 1, swap: 3, hint: 4 };
@@ -345,7 +361,7 @@ function createRoom(attempt = 0) {
   const code = randCode();
   homeMsg('Opening a portal…');
   Net.isHost = true; Net.code = code; Net.pid = 'host-' + randId();
-  const peer = new Peer(PREFIX + code, { debug: 0 });
+  const peer = new Peer(PREFIX + code, PEER_OPTS);
   Net.peer = peer;
   const stall = setTimeout(() => {
     if (peer === Net.peer && !peer.open) homeMsg("Couldn't reach the matchmaking server. Check your connection or try another network, then click Create again.");
@@ -400,11 +416,14 @@ function joinRoom(code) {
   Net.pid = store.get('gb-pid-' + code) || randId();
   store.set('gb-pid-' + code, Net.pid);
   homeMsg('Searching for room ' + code + '…');
-  const peer = new Peer(undefined, { debug: 0 });
+  const peer = new Peer(undefined, PEER_OPTS);
   Net.peer = peer;
   const stall = setTimeout(() => {
-    if (peer === Net.peer && !Net.everConnected) homeMsg("Couldn't reach the room. Check the code and your connection, then try Join again.");
-  }, 12000);
+    if (peer !== Net.peer || Net.everConnected) return;
+    homeMsg(peer.open
+      ? `Found room ${code} but couldn't link to the host. One of your networks is blocking direct connections. Try again, or switch one player to a different network (e.g. a phone hotspot).`
+      : "Couldn't reach the matchmaking server. Check your connection, then try Join again.");
+  }, 15000);
   peer.on('open', () => connectToHost());
   peer.on('close', () => clearTimeout(stall));
   peer.on('error', e => {
@@ -649,8 +668,9 @@ function renderControls() {
   for (const b of document.querySelectorAll('.power')) {
     const k = b.dataset.power;
     b.disabled = !mine || (COST[k] && (!p || p.gems < COST[k]));
-    b.classList.toggle('armed', k === 'swap' && swapPick);
+    if (k === 'swap' && b.disabled) swapPick = false;   // can't stay armed if unusable
   }
+  for (const b of document.querySelectorAll('.power')) b.classList.toggle('armed', b.dataset.power === 'swap' && swapPick);
   updateWordBar();
 }
 
@@ -799,7 +819,11 @@ els.castBtn.onclick = () => { if (!path.length && hint) { path = hint.path.slice
 els.clearBtn.onclick = () => setPath([]);
 document.addEventListener('keydown', ev => {
   if (ev.target.tagName === 'INPUT') return;
-  if (ev.key === 'Enter') els.castBtn.click();
+  // preventDefault stops Enter from also "clicking" whatever button has focus
+  if (ev.key === 'Enter') {
+    if (!document.getElementById('screen-game').classList.contains('active')) return;
+    ev.preventDefault(); els.castBtn.click();
+  }
   if (ev.key === 'Escape') { if (swapPick) { swapPick = false; renderControls(); } setPath([]); closePicker(); }
   if (ev.key === 'Backspace' && path.length) setPath(path.slice(0, -1));
 });
@@ -809,9 +833,15 @@ for (const b of document.querySelectorAll('.power')) {
     const k = b.dataset.power;
     if (!isMyTurn()) return;
     if (k === 'swap') { swapPick = !swapPick; setPath([]); renderControls(); return; }
+    if (swapPick) { swapPick = false; closePicker(); renderControls(); }   // picking another power cancels Swap
     if (k === 'pass') { send({ t: 'pass' }); return; }
     send({ t: k });
   };
+}
+// Mouse clicks on game buttons shouldn't leave them focused (or start a text selection);
+// keyboard Tab focus still works normally.
+for (const b of [els.castBtn, els.clearBtn, ...document.querySelectorAll('.power')]) {
+  b.addEventListener('mousedown', ev => ev.preventDefault());
 }
 
 // ---------- Swap picker ----------
